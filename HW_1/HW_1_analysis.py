@@ -1,12 +1,10 @@
 import pandas as pd
-
-# Директория для файлов с данными
-directory = 'Data'
+from HW_1_config import config
 
 def LoadTickersFromCsv(tickers):
     dataFrames = {}
     for ticker in tickers:
-        fileName = f"{directory}\\{ticker}.csv"
+        fileName = f"{config.Directory}\\{ticker}.csv"
         df = pd.read_csv(fileName)
         #df = df.dropna()
         dataFrames[ticker] = df

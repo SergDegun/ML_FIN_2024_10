@@ -1,5 +1,6 @@
 import yfinance as yf
 from pathlib import Path
+from HW_1_config import config
 
 # Этап 1: Загрузка котировок
 
@@ -12,11 +13,8 @@ def LoadSaveTickers(tickers, directory):
         print(f"Сохранено: {filename}")
     return tickers_data
 
-# Директория для сохранения файлов с данными
-directory = 'Data'
-
 # Создание директории, если её не существует
-file_path = Path(f"{directory}\\ticker.csv")
+file_path = Path(f"{config.Directory}\\ticker.csv")
 file_path.parent.mkdir(parents=True, exist_ok=True)
 
 # Список тикеров акций из индекса S&P 500 для загрузки
@@ -24,11 +22,11 @@ sp500_tickers = ['AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL']
 
 # Загрузка данных по акциям
 print(f"Загрузка и сохранение акций из индекса S&P 500:")
-stock_data = LoadSaveTickers(sp500_tickers, directory)
+stock_data = LoadSaveTickers(sp500_tickers, config.Directory)
 
 # Список тикеров криптовалют для загрузки
 cryptos_tickers = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD']
 
 # Загрузка данных по криптовалютам
 print(f"Загрузка и сохранение криптовалют:")
-crypto_data = LoadSaveTickers(cryptos_tickers, directory)
+crypto_data = LoadSaveTickers(cryptos_tickers, config.Directory)
