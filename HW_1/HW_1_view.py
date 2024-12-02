@@ -2,6 +2,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import os
+import talib
 from HW_1_config import config
 
 def plot_data(data, title="", column="Close"):
@@ -39,22 +40,45 @@ files = [
 
 
 dataFrames = {}
+dataMACD = {}
 for fileName in files:
     df = pd.read_csv(fileName)
+    df['Date'] = pd.to_datetime(df['Date'], utc=True)
     df = df.dropna()
     dataFrames[fileName] = df
-    # Вывод графика свечей
+    macd_df = df.copy() #копирование для построения MACD
+    macd_df['MACD'], macd_df['MACD_Signal'], macd_df['MACD_Hist'] = talib.MACD(macd_df["Close"], fastperiod=12,
+                                                                               slowperiod=26, signalperiod=9)
+    dataMACD[fileName] = macd_df
+    # Вывод графика свечей инструмента
     fig = go.Figure(data=go.Ohlc(x=df['Date'],
                     open=df['Open'],
                     high=df['High'],
                     low=df['Low'],
-                    close=df['Close']))
+                    close=df['Close'],
+                    name='OHLC'))
+    # Добавление MACD в отдельной области
+    fig.add_trace(go.Scatter(x=macd_df['Date'], y=macd_df['MACD'], mode='lines', name='MACD', line=dict(color='blue'), yaxis='y2'))
+    fig.add_trace(go.Scatter(x=macd_df['Date'], y=macd_df['MACD_Signal'], mode='lines', name='Signal Line', line=dict(color='red'), yaxis='y2'))
+    fig.add_trace(go.Bar(x=macd_df['Date'], y=macd_df['MACD_Hist'], name='MACD Histogram', marker=dict(color='darkviolet', opacity=0.6), yaxis='y2'))
+
+    # Обновление параметров графика
     fig.update_layout(
-        title=dict(text=fileName)
+        title=dict(text=fileName),
+        xaxis_title='Date',
+        yaxis_title='Price',
+        xaxis=dict(type='date'),
+        yaxis=dict(title='Price'),
+        yaxis2=dict(title='MACD', overlaying='y', side='right', showgrid=False, position=1.0),
+        showlegend=True
     )
+
+    # Вывод графика
     fig.show()
-    # Вывод линейного графика
+
+    # Вывод линейного графика инструмента
     df.index = pd.to_datetime(df['Date'], utc=True)
     plot_data(df, fileName, "Open")
+
 # Вывод всех линейных графиков сразу
 plt.show()
