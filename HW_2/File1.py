@@ -1,11 +1,6 @@
 import pandas as pd
-#import yfinance as yf
+import yfinance as yf
 import talib
-import streamlit as st
-from sklearn.model_selection import train_test_split
-#from ta.trend import SMAIndicator, EMAIndicator, MACD
-#from ta.volatility import BollingerBands
-#from ta.momentum import RSIIndicator
 
 # Простая реализация процесса торговли для стратегии
 def TradingSimple(strategy_data, is_enable_short = False):
@@ -129,19 +124,18 @@ def CheckPATR(X_train_val):
 
 
 #################################################################
-# Загрузка данных и очистка данных
-#data = yf.Ticker("AAPL").history(period="max")
-data = pd.read_csv('Data\\AAPL.csv')
+# Загрузка данных и подготовка (очистка) данных
+#data = pd.read_csv('Data\\AAPL.csv')
+data = yf.download("AAPL", interval='1d')
+data.columns = data.columns.droplevel(level=1)
 data.columns = data.columns.str.lower()
 data = data.dropna()
 data.index = pd.to_datetime(data.index)
-data = data.drop(['dividends'], axis=1)     # Удаление Dividends
-data = data.drop(['stock splits'], axis=1)  # Удаление Stock Splits
 
-# Разделение данных на тренировочную и тестовую выборки
-X_train_val, X_test, y_train_val, y_test = train_test_split(data, data['close'], test_size=0.2, shuffle=False)
-# Разделение тренировочной выборки на тренировочную и валидационную
-X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.25, shuffle=False)
+# Разделение данных на тренировочную\валидационную и тестовую выборки относительно даты 01.03.2024
+split_date = pd.to_datetime('2024-03-01')
+X_train_val = data[data.index < split_date]
+X_test = data[data.index >= split_date]
 
 
 #################################################################
@@ -328,6 +322,6 @@ print(f"PATR. Доходность на единицу времени: {result_m
 print(f"------------------------------------------")
 
 
-# ВЫВОДЫ: на обучающей выборке можно подобрать такие гиперпараметры стратегий, что они будут иметь очень высокую доходность.
+# ВЫВОДЫ: на обучающей выборке можно подобрать такие гиперпараметры стратегий, что они будут иметь высокую доходность.
 #         Но на тестовой выборке эти стратегии с этими оптимальными гиперпараметрами, скорее всего, будут иметь доходность
 #         значительно меньшую, чем на обучающей.
