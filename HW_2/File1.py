@@ -1,37 +1,61 @@
 import pandas as pd
 import yfinance as yf
 import talib
+import itertools
+import warnings
+#import backtesting
+#from backtesting import Backtest, Strategy
 
-# Простая реализация процесса торговли для стратегии
-def TradingSimple(strategy_data, is_enable_short = False):
-    result_money = 1
-    result_instr = 0
+# Простая реализация процесса торговли для тестирования стратегии
+def TradingSimple(strategy_data, commission = 0.0, is_short_enable = False):
+    result_money = 1.0
+    result_instr = 0.0
     trades_count = 0
+    commission_money = 0.0
     # Проход по всем позициям
     for index, row in strategy_data.iterrows():
-        if row['Signal'] == 1 and result_money != 0:
+        if row['Signal'] == 1 and result_money > 0:
             # Выход в LONG
-            result_instr = result_money / row['close']
-            result_money = 0
+            result_money /= (commission + 1.0)
+            result_instr += result_money / row['close']
+            commission_money += result_money * commission
+            result_money = 0.0
             trades_count += 1
-            #print("buy:" + str(result_instr))
-        elif row['Signal'] == -1 and result_instr != 0:
-            # Выход в SHORT если включен, иначе в CASHE
-            result_money = result_instr * row['close']
-            result_instr = 0
-            trades_count += 1
-            #print("sell:" + str(result_money))
+        elif row['Signal'] == -1 and result_instr >= 0:
+            # Выход в SHORT если включен режим, иначе в CASHE
+            if (result_instr > 0):
+                money_val = result_instr * row['close']
+                result_money += money_val
+                commission_val = abs(money_val) * commission
+                result_money -= commission_val
+                commission_money += commission_val
+                result_instr = 0.0
+                trades_count += 1
+            if (is_short_enable == True):
+                result_money /= (commission + 1.0)
+                result_instr = -result_money / row['close']
+                commission_money += result_money * commission
+                result_money *= 2.0
+                trades_count += 1
         elif row['Signal'] == 0 and result_instr != 0:
             # Выход в CASHE
-            result_money += result_instr * row['close']
-            result_instr = 0
+            money_val = result_instr * row['close']
+            result_money += money_val
+            commission_val = abs(money_val) * commission
+            result_money -= commission_val
+            commission_money += commission_val
+            result_instr = 0.0
             trades_count += 1
-            # print("sell:" + str(result_money))
-    # Проверка завершения торговли
-    if result_money == 0:
-        result_money = result_instr * strategy_data['close'].iloc[-1]
-        result_instr = 0
-    return result_money, trades_count
+    if result_instr != 0: # Завершение торговли
+        # Выход в CASHE
+        money_val = result_instr * strategy_data['close'].iloc[-1]
+        result_money += money_val
+        commission_val = abs(money_val) * commission
+        result_money -= commission_val
+        commission_money += commission_val
+        result_instr = 0.0
+        trades_count += 1
+    return result_money, trades_count, commission_money
 
 # Проверка стратегии MACD
 def CheckMACD(X_train_val, fastperiod, slowperiod, signalperiod):
@@ -44,7 +68,7 @@ def CheckMACD(X_train_val, fastperiod, slowperiod, signalperiod):
     macd_df.loc[macd_df['MACD'] > macd_df['MACD_Signal'], 'Signal'] = 1
     macd_df.loc[macd_df['MACD'] < macd_df['MACD_Signal'], 'Signal'] = -1
     # Проверка результата торговли
-    return TradingSimple(macd_df)
+    return TradingSimple(macd_df, commission=0.002)
 
 # Проверка стратегии STOCH
 def CheckSTOCH(X_train_val, fastk_period, slowk_period, slowk_matype, slowd_period, slowd_matype):
@@ -60,7 +84,7 @@ def CheckSTOCH(X_train_val, fastk_period, slowk_period, slowk_matype, slowd_peri
     stoch_df.loc[stoch_df['slowk'] > stoch_df['slowd'], 'Signal'] = 1
     stoch_df.loc[stoch_df['slowk'] < stoch_df['slowd'], 'Signal'] = -1
     # Проверка результата торговли
-    return TradingSimple(stoch_df)
+    return TradingSimple(stoch_df, commission=0.002)
 
 
 # Проверка стратегии TEMA
@@ -82,7 +106,7 @@ def CheckTEMA(X_train_val, period):
     # Логика для входа в длинную позицию (Long)
     tema_df.loc[tema_df['close'] > tema_df['TripleEMA'], 'Signal'] = 1
     # Проверка результата торговли
-    return TradingSimple(tema_df)
+    return TradingSimple(tema_df, commission=0.002)
 
 
 # Проверка стратегии BBOL
@@ -104,7 +128,7 @@ def CheckBBOL(X_train_val, period):
     # Вход в позицию SELL
     bb_df.loc[bb_df['close'] < bb_df['LowerBB_1SD'], 'Signal'] = -1
     # Проверка результата торговли
-    return TradingSimple(bb_df)
+    return TradingSimple(bb_df, commission=0.002)
 
 
 # Проверка стратегии PATR
@@ -120,7 +144,7 @@ def CheckPATR(X_train_val):
     # Сигналы на продажу (медвежье поглощение)
     candlestick_df.loc[candlestick_df['engulfing'] < 0, 'Signal'] = -1
     # Проверка результата торговли
-    return TradingSimple(candlestick_df)
+    return TradingSimple(candlestick_df, commission=0.002)
 
 
 #################################################################
@@ -155,18 +179,19 @@ if (MACD_optim):
     macd_best_slowperiod = 0
     macd_best_signalperiod = 0
     # Подбор гиперпараметров
-    for fastperiod in (2, 7, 12):
-        for slowperiod in (12, 19, 26):
-            for signalperiod in (3, 6, 9, 12):
-                # Проверка результата торговли
-                result_money, trades_count = CheckMACD(X_train_val,
-                    fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod)
-                if (result_money > macd_best_money):
-                    macd_best_money = result_money
-                    macd_best_trades = trades_count
-                    macd_best_fastperiod = fastperiod
-                    macd_best_slowperiod = slowperiod
-                    macd_best_signalperiod = signalperiod
+    fastperiod_list = [2, 7, 12]
+    slowperiod_list = [12, 19, 26]
+    signalperiod_list = [3, 6, 9, 12]
+    for fastperiod, slowperiod, signalperiod in itertools.product(fastperiod_list, slowperiod_list, signalperiod_list):
+        # Проверка результата торговли
+        result_money, trades_count, commission_money = CheckMACD(X_train_val,
+            fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod)
+        if (result_money > macd_best_money):
+            macd_best_money = result_money
+            macd_best_trades = trades_count
+            macd_best_fastperiod = fastperiod
+            macd_best_slowperiod = slowperiod
+            macd_best_signalperiod = signalperiod
     print(f"MACD. Лучший результат ДС: {macd_best_money}")
     print(f"MACD. Лучшее количество сделок: {macd_best_trades}")
     print(f"MACD. Доходность на единицу времени: {macd_best_money / len(X_train_val)}")
@@ -193,19 +218,20 @@ if (STOCH_optim):
     stoch_best_slowk_period = 0
     stoch_best_slowd_period = 0
     # Подбор гиперпараметров
-    for fastk_period in (10, 14, 18):
-        for slowk_period in (4, 7, 10):
-            for slowd_period in (4, 7, 10):
-                # Проверка результата торговли
-                result_money, trades_count = CheckSTOCH(X_train_val,
-                    fastk_period=fastk_period, slowk_period=slowk_period,
-                    slowk_matype=0, slowd_period=slowd_period, slowd_matype=0)
-                if (result_money > stoch_best_money):
-                    stoch_best_money = result_money
-                    stoch_best_trades = trades_count
-                    stoch_best_fastk_period = fastk_period
-                    stoch_best_slowk_period = slowk_period
-                    stoch_best_slowd_period = slowd_period
+    fastk_period_list = [10, 14, 18]
+    slowk_period_list = [4, 7, 10]
+    slowd_period_list = [4, 7, 10]
+    for fastk_period, slowk_period, slowd_period in itertools.product(fastk_period_list, slowk_period_list, slowd_period_list):
+        # Проверка результата торговли
+        result_money, trades_count, commission_money = CheckSTOCH(X_train_val,
+            fastk_period=fastk_period, slowk_period=slowk_period,
+            slowk_matype=0, slowd_period=slowd_period, slowd_matype=0)
+        if (result_money > stoch_best_money):
+            stoch_best_money = result_money
+            stoch_best_trades = trades_count
+            stoch_best_fastk_period = fastk_period
+            stoch_best_slowk_period = slowk_period
+            stoch_best_slowd_period = slowd_period
     print(f"STOCH. Лучший результат ДС: {stoch_best_money}")
     print(f"STOCH. Лучшее количество сделок: {stoch_best_trades}")
     print(f"STOCH. Доходность на единицу времени: {stoch_best_money / len(X_train_val)}")
@@ -232,7 +258,7 @@ if (TEMA_optim):
     # Подбор гиперпараметров
     for period in range(2, 100, 1):
         # Проверка результата торговли
-        result_money, trades_count = CheckTEMA(X_train_val, period)
+        result_money, trades_count, commission_money = CheckTEMA(X_train_val, period)
         if (result_money > tema_best_money):
             tema_best_money = result_money
             tema_best_trades = trades_count
@@ -261,7 +287,7 @@ if (BBOL_optim):
     # Подбор гиперпараметров
     for period in range(2, 100, 1):
         # Проверка результата торговли
-        result_money, trades_count = CheckBBOL(X_train_val, period)
+        result_money, trades_count, commission_money = CheckBBOL(X_train_val, period)
         if (result_money >  bbol_best_money):
             bbol_best_money = result_money
             bbol_best_trades = trades_count
@@ -285,14 +311,14 @@ print(f"###############################################")
 print("Тестирование стратегий на тестовой выборке")
 
 # Проверка стратегии MACD
-result_money, trades_count = CheckMACD(X_test, fastperiod=macd_best_fastperiod, slowperiod=macd_best_slowperiod,
+result_money, trades_count, commission_money = CheckMACD(X_test, fastperiod=macd_best_fastperiod, slowperiod=macd_best_slowperiod,
                                        signalperiod=macd_best_signalperiod)
 print(f"MACD. Тестовый результат ДС: {result_money}")
 print(f"MACD. Тестовое количество сделок: {trades_count}")
 print(f"MACD. Доходность на единицу времени: {result_money / len(X_test)}")
 print(f"------------------------------------------")
 # Проверка стратегии STOCH
-result_money, trades_count = CheckSTOCH(X_test, fastk_period=stoch_best_fastk_period, slowk_period=stoch_best_slowk_period,
+result_money, trades_count, commission_money = CheckSTOCH(X_test, fastk_period=stoch_best_fastk_period, slowk_period=stoch_best_slowk_period,
                                         slowk_matype=0, slowd_period=stoch_best_slowd_period, slowd_matype=0)
 # Вывод результатов
 print(f"STOCH. Тестовый результат ДС: {result_money}")
@@ -300,21 +326,21 @@ print(f"STOCH. Тестовое количество сделок: {trades_count
 print(f"STOCH. Доходность на единицу времени: {result_money / len(X_test)}")
 print(f"------------------------------------------")
 # Проверка стратегии TEMA
-result_money, trades_count = CheckTEMA(X_test,  period=tema_best_period)
+result_money, trades_count, commission_money = CheckTEMA(X_test,  period=tema_best_period)
 # Вывод результатов
 print(f"TEMA. Тестовый результат ДС: {result_money}")
 print(f"TEMA. Тестовое количество сделок: {trades_count}")
 print(f"TEMA. Доходность на единицу времени: {result_money / len(X_test)}")
 print(f"------------------------------------------")
 # Проверка стратегии с использованием линий Болинджера BBOL
-result_money, trades_count = CheckBBOL(X_test,  period=bbol_best_period)
+result_money, trades_count, commission_money = CheckBBOL(X_test,  period=bbol_best_period)
 # Вывод результатов
 print(f"BBOL. Тестовый результат ДС: {result_money}")
 print(f"BBOL. Тестовое количество сделок: {trades_count}")
 print(f"BBOL. Доходность на единицу времени: {result_money / len(X_test)}")
 print(f"------------------------------------------")
 # Проверка стратегии с использованием паттернов свечей
-result_money, trades_count = CheckPATR(X_test)
+result_money, trades_count, commission_money = CheckPATR(X_test)
 # Вывод результатов
 print(f"PATR. Тестовый результат ДС: {result_money}")
 print(f"PATR. Тестовое количество сделок: {trades_count}")
@@ -322,6 +348,7 @@ print(f"PATR. Доходность на единицу времени: {result_m
 print(f"------------------------------------------")
 
 
-# ВЫВОДЫ: на обучающей выборке можно подобрать такие гиперпараметры стратегий, что они будут иметь высокую доходность.
+# ВЫВОДЫ: 1. на обучающей выборке можно подобрать такие гиперпараметры стратегий, что они будут иметь высокую доходность.
 #         Но на тестовой выборке эти стратегии с этими оптимальными гиперпараметрами, скорее всего, будут иметь доходность
 #         значительно меньшую, чем на обучающей.
+#         2. самой перспективной из рассмотренных стратегий на тестовом участке является STOCH
