@@ -7,6 +7,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 import seaborn as sns
+import talib
 import time
 import os
 
@@ -28,13 +29,41 @@ def clean_data(df, zbals = 8):
     return df
 
 
-def create_new_features(df, IsNeedStandarting = False):
-    # Создаем новый признак, например, отношение двух столбцов
-    df['Open2Close'] = df['Open'] / df['Close']
+def create_new_features(df, sta_wnd_size = 5, ind_window_size = 14, IsNeedStandarting = False):
     df['Average'] = (df['Open'] + df['Close'] + df['High'] + df['Low']) / 4
-    df['Return'] = df['Average'].pct_change()  # Возврат
-    df['Moving_average'] = df['Average'].rolling(window=5).mean()  # Скользящее среднее
-    df['Volatility'] = df['Average'].rolling(window=5).std()  # Волатильность
+    df['Avg_pct'] = df['Average'].pct_change()  # Отношение к предыдущему
+    df['Open_pct'] = df['Open'].pct_change()  # Отношение к предыдущему
+    df['Close_pct'] = df['Close'].pct_change()  # Отношение к предыдущему
+    df['High_pct'] = df['High'].pct_change()  # Отношение к предыдущему
+    df['Low_pct'] = df['Low'].pct_change()  # Отношение к предыдущему
+    df['Multi1'] = df['Open'] *  df['Close'] # Умножение 1
+    df['Multi2'] = df['High'] *  df['Low'] # Умножение 2
+    df['Open2Close'] = df['Open'] / df['Close'] # Деление 1
+    df['High2Low'] = df['High'] /  df['Low'] # Деление 2
+    df['Avg_sqr'] = df['Average'].apply(lambda x: x**2) # Квадрат
+
+    # Трендовые характеристики
+    df['Rolling_Mean'] = df['Average'].rolling(window=sta_wnd_size).mean()  # Скользящее среднее
+    df['Rolling_Std'] = df['Average'].rolling(window=sta_wnd_size).std()  # Волатильность
+
+    # Лаги
+    for lag in range(1, ind_window_size + 1):
+        df[f'Lag_Close_{lag}'] = df['Close'].shift(lag)
+        df[f'Lag_Open_{lag}'] = df['Open'].shift(lag)
+        df[f'Lag_High_{lag}'] = df['High'].shift(lag)
+        df[f'Lag_Low_{lag}'] = df['Low'].shift(lag)
+
+    # Дифференциалы
+    df['Diff_Rolling_Mean'] = df['Close'] - df['Rolling_Mean']
+    df['Diff_High_Low'] = df['High'] - df['Low']
+
+    # Технические индикаторы
+    df['RSI'] = talib.RSI(df['Close'], timeperiod=ind_window_size)
+    df['ADX'] = talib.ADX(df['High'], df['Low'], df['Close'], timeperiod=ind_window_size)
+    ema_fast = talib.EMA(df['Close'], timeperiod=int(ind_window_size * 0.25))  # Быстрая EMA
+    ema_slow = talib.EMA(df['Close'], timeperiod=ind_window_size)  # Медленная EMA
+    df['MACD'] = ema_fast - ema_slow
+    df['Signal_Line'] = talib.EMA(df['MACD'], timeperiod=int(ind_window_size * 0.15))
 
     # Стандартизация данных
     if IsNeedStandarting:
