@@ -63,15 +63,16 @@ def evaluate_model(model, X_val, y_val):
     mse = mean_squared_error(y_val, predictions)
     r2 = r2_score(y_val, predictions)
     print(f'MSE: {mse:.4f}, R2: {r2:.4f}')
+    return mse, r2
 
 print("Linear Regression:")
-evaluate_model(lr_model, X_val, y_val)
+mse_lr, r2_lr = evaluate_model(lr_model, X_val, y_val)
 
 print("\nRandom Forest:")
-evaluate_model(rf_model, X_val, y_val)
+mse_rf, r2_rf = evaluate_model(rf_model, X_val, y_val)
 
 print("\nLightGBM:")
-evaluate_model(lgb_model, X_val, y_val)
+mse_lgb, r2_lgb = evaluate_model(lgb_model, X_val, y_val)
 
 # Создание дашборда
 app = dash.Dash(__name__)
