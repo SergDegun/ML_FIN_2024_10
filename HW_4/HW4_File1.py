@@ -11,7 +11,7 @@ from lightgbm import LGBMRegressor
 import dash
 from dash import dcc
 from dash import html
-from dash.dependencies import Input, Output
+import plotly.graph_objs as go
 import talib
 
 # Простая реализация процесса торговли для тестирования стратегии
@@ -178,11 +178,11 @@ rmse_lr, r2_lr, evs_lr = evaluate_model(lr_model, X_val, y_val)
 print("\nRandom Forest:")
 rmse_rf, r2_rf, evs_rf = evaluate_model(rf_model, X_val, y_val)
 
-print("\nLightGBM:")
-rmse_lgbm, r2_lgbm, evs_lgbm = evaluate_model(lgbm_model, X_val, y_val)
-
 print("\nXGBoost:")
 rmse_xgb, r2_xgb, evs_xgb = evaluate_model(xgb_model, X_val, y_val)
+
+print("\nLightGBM:")
+rmse_lgbm, r2_lgbm, evs_lgbm = evaluate_model(lgbm_model, X_val, y_val)
 
 # Проверка стратегии торговли на GAP с использованием LightGBM, как самого точного метода регрессии
 lgbm_df = X_val.copy()
@@ -203,17 +203,37 @@ print(f"LightGBM. Доходность на единицу времени: {lgbm
 # Создание дашборда
 app = dash.Dash(__name__)
 
+real_prices = X_val['Close'].values
+predicted_prices = lgbm_df['LGBM'] * X_val['Close']
+data = X_val
+
 app.layout = html.Div([
-    html.H1('Торговая стратегия'),
-    dcc.Graph(id='price-graph'),
+    html.H1('Торговая стратегия на основе регрессии LightGBM'),
+    dcc.Graph(id='price-graph',
+        figure = {
+            'data': [
+                go.Scatter(x=data.index[-100:], y=real_prices[-100:], name='Real Price'),
+                go.Scatter(x=data.index[-100:], y=predicted_prices[-100:], name='Predicted Price')
+            ],
+            'layout': go.Layout(title='Price Prediction')
+        }
+    ),
     html.H2('Метрики эффективности'),
-    html.Table([
-        html.Tr([html.Th('Модель'), html.Th('RMSE'), html.Th('R2'), html.Th('EVS')]),
-        html.Tr([html.Td('Linear Regression'), html.Td(f'{rmse_lr:.4f}'), html.Td(f'{r2_lr:.4f}'), html.Td(f'{evs_lr:.4f}')]),
-        html.Tr([html.Td('Random Forest'), html.Td(f'{rmse_rf:.4f}'), html.Td(f'{r2_rf:.4f}'), html.Td(f'{evs_rf:.4f}')]),
-        html.Tr([html.Td('LightGBM'), html.Td(f'{rmse_lgbm:.4f}'), html.Td(f'{r2_lgbm:.4f}'), html.Td(f'{evs_lgbm:.4f}')]),
-        html.Tr([html.Td('XGBoost'), html.Td(f'{rmse_xgb:.4f}'), html.Td(f'{r2_xgb:.4f}'), html.Td(f'{evs_xgb:.4f}')])
-    ])
+    html.Table(
+        style={
+            'border': '1px solid black',  # Рамка для таблицы
+            'border-collapse': 'collapse',  # Объединение границ ячеек
+            'width': '50%',  # Ширина таблицы
+            'margin': 'left',  # Центрирование таблицы
+            'text-align': 'center'  # Выравнивание текста по центру
+        },
+        children=[
+            html.Tr([html.Th('Модель'), html.Th('RMSE'), html.Th('R2'), html.Th('EVS')],style={'border': '1px solid black', 'padding': '8px'}),
+            html.Tr([html.Td('Linear Regression'), html.Td(f'{rmse_lr:.4f}'), html.Td(f'{r2_lr:.4f}'), html.Td(f'{evs_lr:.4f}')],style={'border': '1px solid black', 'padding': '8px'}),
+            html.Tr([html.Td('Random Forest'), html.Td(f'{rmse_rf:.4f}'), html.Td(f'{r2_rf:.4f}'), html.Td(f'{evs_rf:.4f}')],style={'border': '1px solid black', 'padding': '8px'}),
+            html.Tr([html.Td('XGBoost'), html.Td(f'{rmse_xgb:.4f}'), html.Td(f'{r2_xgb:.4f}'), html.Td(f'{evs_xgb:.4f}')],style={'border': '1px solid black', 'padding': '8px'}),
+            html.Tr([html.Td('LightGBM'), html.Td(f'{rmse_lgbm:.4f}'), html.Td(f'{r2_lgbm:.4f}'), html.Td(f'{evs_lgbm:.4f}')], style={'border': '1px solid black', 'padding': '8px'})
+        ])
 ])
 
 #if __name__ == '__main__':
