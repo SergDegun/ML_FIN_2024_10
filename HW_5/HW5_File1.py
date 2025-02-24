@@ -43,7 +43,7 @@ def rsi(close_prices, n=14):
 # Колонки для нормализации
 columns_to_scale = ['Open', 'High', 'Low', 'Close', 'Volume', 'Mean', 'Value']
 # Колонки, которые не нужно нормализовать
-columns_not_to_scale = ['SMA', 'RSI']
+columns_not_to_scale = ['Predict', 'SMA', 'RSI']
 
 # Предобработка данных
 def preprocess_data(data, window_size=30):
@@ -53,8 +53,15 @@ def preprocess_data(data, window_size=30):
   data['SMA'] = data['Close'].rolling(window_size).mean()  # Скользящая средняя
   data['RSI'] = rsi(data['Close'], n=window_size)  # Индекс относительной силы
 
+  # Формирование признака предсказания для стратегии, основанной на использовании GAP,
+  # как отношения цены открытия завтра к цене закрытия сегодня
+  data["Predict"] = data['Open'].shift(-1) / data["Close"]
+
   # Удаляем строки с NaN-значениями
   data.dropna(inplace=True)
+
+  # Сохраняем реальные цены закрытия
+  Close_prices = data['Close'].values
 
   # Нормализация данных только к выбранным колонкам
   scaler = MinMaxScaler(feature_range=(0, 1))
@@ -66,19 +73,29 @@ def preprocess_data(data, window_size=30):
   # Добавляем колонки, которые не нужно было нормализовать
   scaled_df[columns_not_to_scale] = data[columns_not_to_scale].reset_index(drop=True)
 
-  # Преобразуем DataFrame в массив NumPy для удобства работы
-  scaled_data = scaled_df.values
+  # Сохраняем колонку 'Predict' для целевой переменной
+  y_data = scaled_df['Predict'].values
+
+  # Удаление колонки 'Predict' и преобразование DataFrame в массив NumPy для удобства работы
+  X_data = scaled_df.drop(columns=['Predict']).values
 
   # Создание временных окон
   X, y = [], []
-  for i in range(window_size, len(scaled_data)):
-      X.append(scaled_data[i-window_size:i, :])
-      y.append(scaled_data[i, 0]) #Целевая переменная
+  for i in range(window_size, len(scaled_df)):
+      X.append(X_data[i - window_size:i, :]) # Все колонки, кроме 'Predict'
+      y.append(y_data[i]) # Целевая переменная колонка 'Predict'
   X, y = np.array(X), np.array(y)
 
   # Разделение на обучающую и тестовую выборки
   X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-  return X_train, X_test, y_train, y_test, scaler
+
+  # Разделение Close_prices в том же отношении, что и X, y
+  # Используем индексы, полученные при разбиении X и y
+  split_index = len(X_train)
+  Close_train = Close_prices[window_size:split_index + window_size]
+  Close_test = Close_prices[split_index + window_size:]
+
+  return X_train, X_test, y_train, y_test, Close_train, Close_test, scaler
 
 def create_lstm_model(input_shape):
   model = Sequential()
@@ -131,14 +148,14 @@ def calculate_metrics(predictions, y_test):
 data = load_data_from_yf("AAPL")
 
 # Предобработка данных
-X_train, X_test, y_train, y_test, scaler = preprocess_data(data)
+X_train, X_test, y_train, y_test, Close_train, Close_test, scaler = preprocess_data(data)
 
 # Создание и обучение модели
 model = create_cnn_lstm_model((X_train.shape[1], X_train.shape[2]))
 history = train_model(model, X_train, y_train, 10)
 
 # Тестирование модели
-predictions, y_test = test_model(model, X_test, y_test, scaler)
+predictions, y_test = test_model(model, X_test, y_test)
 
 # Расчет метрик
 direction_accuracy, rmse, mae, rmse2avg, mae2avg  = calculate_metrics(predictions, y_test)
@@ -147,6 +164,9 @@ print(f"Средняя абсолютная ошибка цены (MAE): {mae:.4
 print(f"Средняя квадратичная ошибка цены (RMSE): {rmse:.4f}")
 print(f"Относительная средняя абсолютная ошибка цены (MAE): {mae2avg:.4f}")
 print(f"Относительная средняя квадратичная ошибка цены (RMSE): {rmse2avg:.4f}")
+
+count_less_than_1 = np.sum(predictions < 1)
+print(f"Количество элементов меньше 1: {count_less_than_1}")
 
 # Сохранение метрик в файл
 metrics = {
@@ -176,20 +196,17 @@ def create_dashboard(data, predictions, y_test):
 
 create_dashboard(data, predictions, y_test)
 
-def simulate_trading(model, X_test, y_test, initial_capital=10000, commission=0.001):
+
+def simulate_trading(predictions, Close_prices, initial_capital=10000, commission=0.001):
     """
     Симуляция торговли на тестовых данных.
     Будем покупать акции, если модель предсказывает рост цены, и продавать, если предсказывает падение
-    :param model: Обученная модель
-    :param X_test: Тестовые данные (временные окна)
-    :param y_test: Реальные цены
+    :param predictions: предсказания модели
+    :param Close_prices: Реальные цены закрытия
     :param initial_capital: Начальный капитал
     :param commission: Комиссия за сделку (например, 0.1%)
     :return: История капитала, список сделок
     """
-    # Получаем прогнозы модели
-    predictions = model.predict(X_test)
-
     # Инициализация переменных
     capital = initial_capital
     position = 0  # Текущая позиция (0 - нет позиции, 1 - куплено, -1 - продано)
@@ -197,9 +214,8 @@ def simulate_trading(model, X_test, y_test, initial_capital=10000, commission=0.
     capital_history = []  # История изменения капитала
 
     for i in range(len(predictions) - 1):
-        current_price = y_test[i]
-        next_price = y_test[i + 1]
-        predicted_change = predictions[i + 1] - predictions[i]
+        current_price = Close_prices[i]
+        predicted_change = predictions[i] - 1
 
         # Сигнал на покупку (предсказание роста)
         if predicted_change > 0 and position <= 0:
@@ -229,22 +245,22 @@ def simulate_trading(model, X_test, y_test, initial_capital=10000, commission=0.
 
         # Обновляем историю капитала
         if position == 1:
-            capital_history.append(capital + (shares_to_buy * next_price))
+            capital_history.append(capital + (shares_to_buy * current_price))
         elif position == -1:
-            capital_history.append(capital - (shares_to_sell * next_price))
+            capital_history.append(capital - (shares_to_sell * current_price))
         else:
             capital_history.append(capital)
 
     # Закрываем последнюю позицию, если она открыта
     if position == 1:
-        capital += position * y_test[-1] * (1 - commission)
+        capital += position * Close_prices[-1] * (1 - commission)
     elif position == -1:
-        capital += position * y_test[-1] * (1 - commission)
+        capital += position * Close_prices[-1] * (1 - commission)
 
     return capital_history, trades
 
 # Симуляция торгов
-capital_history, trades = simulate_trading(model, X_test, y_test, initial_capital=10000, commission=0.001)
+capital_history, trades = simulate_trading(predictions, Close_test, initial_capital=10000, commission=0.001)
 # Вывод результатов
 print(f"Конечный капитал: {capital_history[-1]:.2f}")
 print(f"Количество сделок: {len(trades)}")
